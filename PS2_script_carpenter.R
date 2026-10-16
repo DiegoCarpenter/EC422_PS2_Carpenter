@@ -73,3 +73,49 @@ unemp_recent_summary <- unemp_recent |>
     max_rate  = max(unemployment_rate,  na.rm = TRUE)
   )
 
+unemp_top_increases <- unemp |>
+  slice_max(unemployment_rate_change, n = 5, with_ties = TRUE) |>
+  select(region, date, unemployment_rate, unemployment_rate_change)
+
+unemp_top_decreases <- unemp |>
+  slice_min(unemployment_rate_change, n = 5, with_ties = TRUE) |>
+  select(region, date, unemployment_rate, unemployment_rate_change)
+
+unemp_top_increases
+unemp_top_decreases
+
+
+unemp_no_covid <- unemp |>
+  filter(year(date) != 2020)
+
+unemp_top_increases_no_covid <- unemp_no_covid |>
+  slice_max(unemployment_rate_change, n = 5, with_ties = TRUE) |>
+  select(region, date, unemployment_rate, unemployment_rate_change)
+
+unemp_top_decreases_no_covid <- unemp_no_covid |>
+  slice_min(unemployment_rate_change, n = 5, with_ties = TRUE) |>
+  select(region, date, unemployment_rate, unemployment_rate_change)
+
+
+# 5.1 All regions on one plot
+ggplot(unemp, aes(x = date, y = unemployment_rate, color = region)) +
+  geom_line() +
+  labs(title = "Unemployment Rate, U.S. and Selected States, 1976–Present",
+       x = "Date", y = "Unemployment rate (%)", color = "Region") +
+  theme_minimal()
+
+# 5.2 One panel per region
+ggplot(unemp, aes(x = date, y = unemployment_rate)) +
+  geom_line() +
+  facet_wrap(~ region) +
+  labs(title = "Unemployment Rate by Region",
+       x = "Date", y = "Unemployment rate (%)") +
+  theme_minimal()
+
+# 5.3 Bar chart of means, sorted low to high
+ggplot(unemp_summary, aes(x = fct_reorder(region, mean_rate), y = mean_rate)) +
+  geom_col() +
+  labs(title = "Average Unemployment Rate by Region, 1976–Present",
+       x = "Region", y = "Mean unemployment rate (%)") +
+  theme_minimal()
+
