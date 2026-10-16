@@ -1,0 +1,163 @@
+---
+title: "Problem Set 2"
+author: "Diego Carpenter"
+date: 10/16/26
+format:
+  html:
+    toc: true
+    embed-resources: true
+---
+
+\*\*GitHub repo:\*\* <https://github.com/DiegoCarpenter/EC422_PS2_Carpenter.git>
+
+\## Data
+
+The data are monthly, seasonally adjusted unemployment rates for the United States and four states: Oregon, California, Texas, and New York. They come from the St. Louis Fed's FRED database and were pulled into R with \`tq_get()\` from the tidyquant package. The sample runs from January 1976 through September 2026. The data are in long format, with one row per region per month. I saved them to \`data/unemp_raw.rds\` so the analysis doesn't need to re-download from FRED every time it runs. The first six rows are shown below.
+
+```{r}
+#| message: false
+#| warning: false
+library(tidyverse)
+library(knitr)
+
+unemp_raw <- read_rds("data/unemp_raw.rds")
+head(unemp_raw)
+```
+
+## Wrangling
+
+I renamed FRED's generic \`price\` column to \`unemployment_rate\` and added a \`region\` column with readable names. The October 2025 observation is missing because the government shutdown interrupted data collection. I filled it with each region's September 2025 value, which is reasonable because the unemployment rate rarely moves much from one month to the next. I then computed the month-over-month change in the unemployment rate within each region using \`lag()\`, and created a second dataset covering January 2015 onward.
+
+```{r}
+# Clean up names and add readable region labels
+unemp <- unemp_raw |>
+  rename(unemployment_rate = price) |>
+  mutate(
+    region = case_when(
+      symbol == "UNRATE" ~ "United States",
+      symbol == "ORUR"   ~ "Oregon",
+      symbol == "CAUR"   ~ "California",
+      symbol == "TXUR"   ~ "Texas",
+      symbol == "NYUR"   ~ "New York"
+    )
+  )
+
+# Fill missing October 2025 value with September 2025, within each region
+unemp <- unemp |>
+  arrange(region, date) |>
+  group_by(region) |>
+  mutate(
+    unemployment_rate = replace(
+      unemployment_rate,
+      date == as.Date("2025-10-01"),
+      unemployment_rate[date == as.Date("2025-09-01")]
+    )
+  ) |>
+  ungroup()
+
+# Month-over-month change within each region
+unemp <- unemp |>
+  arrange(region, date) |>
+  group_by(region) |>
+  mutate(unemployment_rate_change = unemployment_rate - lag(unemployment_rate)) |>
+  ungroup()
+
+# Observations from January 2015 onward
+unemp_recent <- unemp |>
+  filter(date >= as.Date("2015-01-01"))
+
+# Summary statistics
+unemp_summary <- unemp |>
+  group_by(region) |>
+  summarize(
+    mean_rate = mean(unemployment_rate, na.rm = TRUE),
+    min_rate  = min(unemployment_rate,  na.rm = TRUE),
+    max_rate  = max(unemployment_rate,  na.rm = TRUE)
+  )
+
+unemp_recent_summary <- unemp_recent |>
+  group_by(region) |>
+  summarize(
+    mean_rate = mean(unemployment_rate, na.rm = TRUE),
+    min_rate  = min(unemployment_rate,  na.rm = TRUE),
+    max_rate  = max(unemployment_rate,  na.rm = TRUE)
+  )
+
+# Largest monthly increases and decreases, excluding 2020
+unemp_no_covid <- unemp |>
+  filter(year(date) != 2020)
+
+unemp_top_increases_no_covid <- unemp_no_covid |>
+  slice_max(unemployment_rate_change, n = 5, with_ties = TRUE) |>
+  select(region, date, unemployment_rate, unemployment_rate_change)
+
+unemp_top_decreases_no_covid <- unemp_no_covid |>
+  slice_min(unemployment_rate_change, n = 5, with_ties = TRUE) |>
+  select(region, date, unemployment_rate, unemployment_rate_change)
+```
+
+The largest single drop is the U.S. in July 1983, at 0.7 points, during the recovery from the 1981–82 recession. Five of the nine rows are from 2021: California, New York, and the U.S. in July, and California and New York in September. This reflects how quickly unemployment came down as the economy reopened after COVID. Decreases are generally smaller than increases, which fits the pattern that unemployment tends to rise quickly in recessions and fall gradually in recoveries.
+
+## Visualization
+
+### Unemployment Rates, All Regions
+
+This figure plots all five unemployment rates on one set of axes from 1976 to 2026. The regions move closely together, rising in each recession (the early 1980s, 1990–91, 2001, and 2008–09) and spiking sharply in spring 2020 before falling quickly.
+
+```{r}
+#| fig-cap: "Monthly unemployment rate by region, 1976–2026"
+ggplot(unemp, aes(x = date, y = unemployment_rate, color = region)) +
+  geom_line() +
+  labs(title = "Unemployment Rate, U.S. and Selected States, 1976–Present",
+       x = "Date", y = "Unemployment rate (%)", color = "Region") +
+  theme_minimal()
+```
+
+### Unemployment Rates by Region
+
+Giving each region its own panel makes the individual patterns easier to see. California runs consistently higher than the other regions. New York and California have the tallest 2020 spikes, matching their maximums of 16.7% and 16.1% in the summary table.
+
+```{r}
+#| fig-cap: "Monthly unemployment rate, one panel per region"
+ggplot(unemp, aes(x = date, y = unemployment_rate)) +
+  geom_line() +
+  facet_wrap(~ region) +
+  labs(title = "Unemployment Rate by Region",
+       x = "Date", y = "Unemployment rate (%)") +
+  theme_minimal()
+```
+
+### Average Unemployment Rate by Region
+
+This chart shows each region's average unemployment rate over the full sample, sorted from lowest to highest. Averages range from 5.85% in Texas to 7.07% in California, with the U.S. average of 6.05% near the bottom.
+
+```{r}
+#| fig-cap: "Mean unemployment rate by region, 1976–2026"
+ggplot(unemp_summary, aes(x = fct_reorder(region, mean_rate), y = mean_rate)) +
+  geom_col() +
+  labs(title = "Average Unemployment Rate by Region, 1976–Present",
+       x = "Region", y = "Mean unemployment rate (%)") +
+  theme_minimal()
+```
+
+### Oregon vs. the U.S.
+
+I plotted the difference between Oregon's unemployment rate and the national rate to see whether Oregon tends to run above or below the national average, and when that changes. For most of the sample, Oregon's rate is above the U.S. rate. The gap peaks at about 2.4 points in the early 1980s, about 2 points in the early 2000s, and about 2 points again in 2009. Oregon dipped below the national rate in the late 1970s, the mid-1990s, around 2017, and most sharply in 2020, when its COVID spike was smaller than the nation's. Since 2024 the gap has widened again, and Oregon's rate is now about 1 point above the U.S. rate.
+
+```{r}
+#| fig-cap: "Oregon unemployment rate minus U.S. unemployment rate (percentage points)"
+unemp |>
+  select(date, region, unemployment_rate) |>
+  pivot_wider(names_from = region, values_from = unemployment_rate) |>
+  mutate(or_gap = Oregon - `United States`) |>
+  ggplot(aes(x = date, y = or_gap)) +
+  geom_line() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(title = "Oregon Minus U.S. Unemployment Rate",
+       x = "Date", y = "Percentage points") +
+  theme_minimal()
+```
+
+## Reflection
+
+Pulling the data from FRED with \`tq_get()\` and wrangling it with dplyr was fairly straightforward once I remembered how \`group_by()\` and \`mutate()\` work together. What tripped me up was the Git setup: I first saved my \`.gitignore\` one folder above my project, and I couldn't see it in Finder because macOS hides files that start with a dot. Running \`ls -a\` and \`git status\` in the Terminal is how I figured out where the file was and whether Git was actually ignoring \`.Rproj.user/\`. I also ran into save errors because my project lives in an iCloud-synced Desktop folder, which taught me to back up my work before restarting anything. I'm now much more comfortable with the add, commit, push cycle and with checking \`git status\` before committing.

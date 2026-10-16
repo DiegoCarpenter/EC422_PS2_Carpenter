@@ -119,3 +119,19 @@ ggplot(unemp_summary, aes(x = fct_reorder(region, mean_rate), y = mean_rate)) +
        x = "Region", y = "Mean unemployment rate (%)") +
   theme_minimal()
 
+
+unemp |>
+  select(date, region, unemployment_rate) |>
+  pivot_wider(names_from = region, values_from = unemployment_rate) |>
+  mutate(or_gap = Oregon - `United States`) |>
+  ggplot(aes(x = date, y = or_gap)) +
+  geom_line() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(title = "Oregon Minus U.S. Unemployment Rate",
+       x = "Date", y = "Percentage points") +
+  theme_minimal()
+
+
+ 
+
+
